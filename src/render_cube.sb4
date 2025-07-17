@@ -1,0 +1,622 @@
+'        !!BEWARE!!
+'horrible variable naming ahead
+'too lazy to "optimize" this to OPTION STRICT
+def qrot ax,ay,az,yaw,pitch,distx,disty,distz out ox,oy,oz
+qmul cos(yaw*.5),0,sin(yaw*.5),0,cos(pitch*.5),sin(pitch*.5),0,0 out qtw,qtx,qty,qtz
+qmul qtw,-qtx,-qty,-qtz,0,ax+distx,ay+disty,az+distz out qfw,qfx,qfy,qfz
+qmul qfw,qfx,qfy,qfz,qtw,qtx,qty,qtz out ,ox,oy,oz
+end
+def qmul aw,ax,ay,az, bw,bx,by,bz out cw,cx,cy,cz
+ cw = aw*bw - ax*bx - ay*by - az*bz
+ cx = aw*bx + ax*bw + ay*bz - az*by
+ cy = aw*by - ax*bz + ay*bw + az*bx
+ cz = aw*bz + ax*by - ay*bx + az*bw
+end
+def func_1(x,y,h,wi,kernel)
+'do x position raster deformation here, 
+'preferably do it in a scalable setting with the use of the variables h,wi,kernel
+return x
+end
+def func_2(x,y,h,wi,kernel)
+'do y position raster deformation here, 
+'preferably do it in a scalable setting with the use of the variables h,wi,kernel
+return y
+end
+
+acls
+XSCREEN 128,128,1,0
+'oops, the "height" and "width" variables are swapped, i am too lazy to fix this so... sorry! too late
+XSCREEN out h,wi
+'you can make the screen smaller than the specified smallest resolution with
+'|      |
+'v this v
+'h=h/2
+'wi=wi/2
+
+'you can modify the kernel subdivision size but
+'the kernel must be in the power of 2 due to quirks in the tile renderer
+kernel=8
+h=h div kernel
+wi=wi div kernel
+
+'you can modify the field of view with #screenzoom, i was too lazy to use tan(theta) so i went with this
+'and it can be annoying to fix this over and over again when the screen needs to get fixed when 
+'resolution changes but idk how i can fix it
+const #screenzoom=0.009
+invzoom=1/#screenzoom
+'gtarget 2 holds the relevant texture data, you can load any picture to it as long as you
+'know the resolution
+'when rendering, you can specify the uv coordinates of the particular triangle
+'the variables in concern are placed in: 
+'upx,upy(at the vector A) 
+',vpx,vpy(at the vector B)
+',wpx,wpy(at the vector C)
+'and what i mean by vectors in this context is the vertex points of the triangle
+gtarget 2
+g5=garray(2)
+'this "texture"(not really a texture) is just a demonstration of what the texture loader can do
+res=11
+for oit=0 to 1 step 1/res
+for oiy=0 to 1 step 1/res
+px=oiy
+py=oit
+ln=sqr(px*px+py*py)
+rc=sin(ln*8*#pi)
+gc=cos(ln*8*#pi)
+bc=cos(ln*8.9*#pi)
+colori=rgbf(rc*.5+.5,gc*.5+.5,bc*.5+.5)
+gpset round(oiy*res)+1,round(oit*res)+1
+next
+next
+gpset 0,0,0
+'i prefer using array instead of dim since it's more consistent,
+'i know that i need to specify in OPTION STRICT but i didn't implement this in OPTION STRICT 
+pixx=ARRAY%(h*wi)
+pixy=ARRAY%(h*wi)
+pixxt=ARRAY%(h*wi)
+pixyt=ARRAY%(h*wi)
+'this calculation is likely the reason why launching this renderer
+'is really slow at higher resolutions
+for i=0 to h*wi-1
+x=(i mod h)-(h div 2)
+y=(wi div 2)-(i mod h)
+pixx=func_1(x,y,h,wi,kernel)
+pixy=func_1(x,y,h,wi,kernel)
+next
+prodx=array#(h*wi)
+disp1x=array#(h*wi)
+disp1y=array#(h*wi)
+disp1z=array#(h*wi)
+disp2x=array#(h*wi)
+disp2y=array#(h*wi)
+disp2z=array#(h*wi)
+
+u=array#(h*wi)
+v=array#(h*wi)
+w=array#(h*wi)
+ui=array%(h*wi)
+vi=array%(h*wi)
+g=garray(1)
+
+um=array%(h*wi)
+vm=array%(h*wi)
+
+'pitch and yaw
+th1=0
+th2=0
+invpi=.5/#pi
+distx=.1
+disty=0
+distz=-55
+perfbegin 0
+'light direction vectors
+lightx=0
+lighty=0
+lightz=1
+'isqr is often used as a normalizer for 3d vectors in this program
+isqr=1/sqr(lightx*lightx+lighty*lighty+lightz*lightz)
+lightx=lightx*isqr
+lighty=lighty*isqr
+lightz=lightz*isqr
+
+'temporary depth buffer, actual the depth buffer is stored in graphics page 1
+'aka gtarget 1
+adpth=array#(h*wi)
+'can be modified to cull a triangle
+mindist=-4
+
+'triangle counter
+cnt=0
+
+'depth buffer resolution, it will show z fighting 
+'more often if the value gets smaller
+depthres=&hffffff
+invdepthres=1/depthres
+vert1=array#(3)
+vert2=array#(3)
+
+LOOP
+timp=tim
+tim=perfend(0)
+tpr=1e6/tim
+tim=((tim-timp)*0.0000007)
+PERFBEGIN 0
+stick 0,1 out jx,jy
+stick 0,0 out gdx,gdy
+dec distx,(gdx*cos(th1)+gdy*sin(th1))*tim*32
+inc disty,BUTTON(0,#b_l2)*tim*32
+dec disty,BUTTON(0,#b_r2)*tim*32
+dec distz,(gdx*sin(-th1)+gdy*cos(th1))*tim*32
+
+dec th1,jx*tim
+dec th2,jy*tim
+th2=min(abs(th2),#pi/2)*sgn(th2)
+th1=th1-floor(th1*invpi)*2*#pi
+gtarget 1
+GCLS #C_NAVY
+'clearing depth buffer
+gfill 0,wi*kernel,h*kernel,wi*2*kernel,0
+'this is just a cube demo
+'render triangles here
+qrot 0,1,0,th1,th2,0,0,0 out lightx,lighty,lightz
+
+qrot -10,10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot 10,-10,10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=res+1
+upy=0
+vpx=1
+vpy=res
+wpx=1
+wpy=0
+gosub @renderuv
+
+qrot -10,10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,-10,10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,-10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=res+1
+upy=0
+vpx=1+res
+vpy=res
+wpx=1
+wpy=res 
+gosub @renderuv
+
+qrot 10,-10,-10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,10,-10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=res+1
+upy=0
+vpx=1
+vpy=res
+wpx=1
+wpy=0
+gosub @renderuv
+
+qrot -10,10,-10,th1,th2,distx,disty,distz out ax,ay,az
+qrot 10,-10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot -10,-10,-10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=res+1
+upy=0
+vpx=1
+vpy=res
+wpx=1+res
+wpy=res
+gosub @renderuv
+
+qrot 10,10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot -10,10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1
+upy=0
+vpx=1+res
+vpy=res
+wpx=1
+wpy=res
+gosub @renderuv
+
+qrot 10,10,-10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1
+upy=res
+vpx=1+res
+vpy=res
+wpx=1
+wpy=0
+gosub @renderuv
+
+qrot -10,-10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot 10,-10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,-10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1+res
+upy=0
+vpx=1
+vpy=res
+wpx=1+res
+wpy=res
+gosub @renderuv
+
+qrot 10,-10,-10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,-10,10,th1,th2,distx,disty,distz out bx,by,bz
+qrot -10,-10,-10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1
+upy=res
+vpx=1+res
+vpy=0
+wpx=1
+wpy=0
+gosub @renderuv
+
+qrot 10,10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot 10,-10,10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,10,-10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1+res
+upy=0
+vpx=1
+vpy=res
+wpx=1
+wpy=0
+gosub @renderuv
+
+qrot 10,10,-10,th1,th2,distx,disty,distz out ax,ay,az
+qrot 10,-10,10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,-10,-10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1+res
+upy=0
+vpx=1+res
+vpy=res
+wpx=1
+wpy=res
+gosub @renderuv
+
+qrot -10,-10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot -10,-10,-10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1+res
+upy=0
+vpx=1
+vpy=res
+wpx=1
+wpy=0
+gosub @renderuv
+
+qrot -10,10,-10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,-10,10,th1,th2,distx,disty,distz out bx,by,bz
+qrot -10,10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1+res
+upy=
+vpx=1
+vpy=res
+wpx=1+res
+wpy=res
+gosub @renderuv
+
+
+qrot -10,-10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot 10,-10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,-10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1+res
+upy=0
+vpx=1
+vpy=res
+wpx=1+res
+wpy=res
+gosub @renderuv
+
+dec,distz,20
+
+qrot -10,10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot 10,-10,10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=res+1
+upy=0
+vpx=1
+vpy=res
+wpx=1
+wpy=0
+gosub @renderuv
+
+qrot -10,10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,-10,10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,-10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=res+1
+upy=0
+vpx=1+res
+vpy=res
+wpx=1
+wpy=res 
+gosub @renderuv
+
+qrot 10,-10,-10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,10,-10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=res+1
+upy=0
+vpx=1
+vpy=res
+wpx=1
+wpy=0
+gosub @renderuv
+
+qrot -10,10,-10,th1,th2,distx,disty,distz out ax,ay,az
+qrot 10,-10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot -10,-10,-10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=res+1
+upy=0
+vpx=1
+vpy=res
+wpx=1+res
+wpy=res
+gosub @renderuv
+
+qrot 10,10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot -10,10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1
+upy=0
+vpx=1+res
+vpy=res
+wpx=1
+wpy=res
+gosub @renderuv
+
+qrot 10,10,-10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1
+upy=res
+vpx=1+res
+vpy=res
+wpx=1
+wpy=0
+gosub @renderuv
+
+qrot -10,-10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot 10,-10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,-10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1+res
+upy=0
+vpx=1
+vpy=res
+wpx=1+res
+wpy=res
+gosub @renderuv
+
+qrot 10,-10,-10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,-10,10,th1,th2,distx,disty,distz out bx,by,bz
+qrot -10,-10,-10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1
+upy=res
+vpx=1+res
+vpy=0
+wpx=1
+wpy=0
+gosub @renderuv
+
+qrot 10,10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot 10,-10,10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,10,-10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1+res
+upy=0
+vpx=1
+vpy=res
+wpx=1
+wpy=0
+gosub @renderuv
+
+qrot 10,10,-10,th1,th2,distx,disty,distz out ax,ay,az
+qrot 10,-10,10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,-10,-10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1+res
+upy=0
+vpx=1+res
+vpy=res
+wpx=1
+wpy=res
+gosub @renderuv
+
+qrot -10,-10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot -10,-10,-10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1+res
+upy=0
+vpx=1
+vpy=res
+wpx=1
+wpy=0
+gosub @renderuv
+
+qrot -10,10,-10,th1,th2,distx,disty,distz out ax,ay,az
+qrot -10,-10,10,th1,th2,distx,disty,distz out bx,by,bz
+qrot -10,10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1+res
+upy=
+vpx=1
+vpy=res
+wpx=1+res
+wpy=res
+gosub @renderuv
+
+
+qrot -10,-10,10,th1,th2,distx,disty,distz out ax,ay,az
+qrot 10,-10,-10,th1,th2,distx,disty,distz out bx,by,bz
+qrot 10,-10,10,th1,th2,distx,disty,distz out cx,cy,cz
+upx=1+res
+upy=0
+vpx=1
+vpy=res
+wpx=1+res
+wpy=res
+gosub @renderuv
+
+inc distz,20
+
+'frame counter
+gputchr 0,0,STR$(tpr)
+'show how many triangles were called for rendering, visible triangles need a different counter
+gputchr 0,0,STR$(cnt)
+cnt=0
+GTARGET 0
+GLOAD g,0
+
+ENDLOOP
+@renderuv
+inc cnt
+if max(az,bz,cz)<mindist then
+'normal vector calculation
+crossi=(by-ay)*(cz-az)-(bz-az)*(cy-ay)
+crossj=(cx-ax)*(bz-az)-(cz-az)*(bx-ax)
+crossk=(bx-ax)*(cy-ay)-(by-ay)*(cx-ax)
+'perspective convertion
+invaz=-1/(az*#screenzoom)
+invbz=-1/(bz*#screenzoom)
+invcz=-1/(cz*#screenzoom)
+ax=ax*invaz
+ay=ay*invaz
+bx=bx*invbz
+by=by*invbz
+cx=cx*invcz
+cy=cy*invcz
+
+sarea=(bx-ax)*(cy-ay)-(by-ay)*(cx-ax)
+'backface culling
+if sarea<=1 then RETURN
+isqr=1/(crossi*crossi+crossj*crossj+crossk*crossk)
+crossi=crossi*isqr
+crossj=crossj*isqr
+crossk=crossk*isqr
+
+dot=lightx*crossi+lighty*crossj+lighty*crossk
+minx=max(ax,bx,cx)+h*kernel*.5
+miny=wi*kernel*.5-max(ay,by,cy)
+
+sarea=1/sarea
+if maxx<0 then RETURN
+if miny<0 then RETURN
+if minx>h*kernel then RETURN
+if maxy>wi*kernel then RETURN
+vert1[0]=ax+h*kernel*.5
+vert2[0]=wi*kernel*1.5-ay
+vert1[1]=bx+h*kernel*.5
+vert2[1]=wi*kernel*1.5-by
+vert1[2]=cx+h*kernel*.5
+vert2[2]=wi*kernel*1.5-cy
+
+aryop #AOPCLP,vert1,vert1,0,h*kernel-1
+aryop #AOPCLP,vert2,vert2,wi*kernel,2*wi*kernel-1
+aryop #AOPADD,vert1,vert1,.5
+aryop #AOPADD,vert2,vert2,.5
+
+truth=g[vert2[0],vert1[0]]*invdepthres>invaz
+truth=truth&&(g[vert2[1],vert1[1]]*invdepthres>invbz)
+truth=truth&&(g[vert2[2],vert1[2]]*invdepthres>invcz)
+if truth then RETURN
+for pty=(maxy div wi) to (miny div wi)
+if (pty>kernel) then RETURN
+if (pty<0) then pty=0
+ARYOP #AOPSUB,pixyt,pixy,(pty-kernel/2+.5)*wi
+for ptx=(minx div h) to (maxx div h)
+if (ptx>kernel) then break
+if ptx<0 then ptx=0
+ARYOP #AOPADD,pixxt,pixx,(ptx-kernel/2+.5)*h
+
+'u calculation
+ 'displacements
+ ARYOP #AOPSUB,disp1x,bx,pixxt
+ ARYOP #AOPSUB,disp1y,by,pixyt
+ ARYOP #AOPSUB,disp2x,cx,pixxt
+ ARYOP #AOPSUB,disp2y,cy,pixyt
+ 'products
+ ARYOP #AOPMUL,prodx,disp1x,disp2y
+ ARYOP #AOPMUL,v,disp2x,disp1y
+ 'cross product final
+ ARYOP #AOPSUB,prodx,prodx,v
+ 'u final calculation
+ ARYOP u,prodx,sarea
+'v calculation
+ 'displacements
+ ARYOP #AOPSUB,disp1x,ax,pixxt
+ ARYOP #AOPSUB,disp1y,ay,pixyt
+ 'products
+ ARYOP #AOPMUL,prodx,disp2x,disp1y
+ ARYOP #AOPMUL,v,disp1x,disp2y
+ 'cross product final
+ ARYOP #AOPSUB,prodx,prodx,v
+ 'v final calculation
+ ARYOP #AOPMUL,v,prodx,sarea
+ 'w calculation
+ ARYOP #AOPADD,w,v,u
+ ARYOP #aopsub,w,1,w
+ 'mask calculation via clamping
+ ARYOP #AOPADD, prodx,u,1
+ ARYOP #AOPCLP,um,prodx,0,1
+ ARYOP #AOPCLP,vm,u,0,1
+ ARYOP #AOPSUB,ui,um,vm
+
+ ARYOP #AOPADD, prodx,v,1
+ ARYOP #AOPCLP,um,prodx,0,1
+ ARYOP #AOPCLP,vm,v,0,1
+ ARYOP #AOPSUB,vi,um,vm
+ ARYOP #AOPMUL,ui,ui,vi
+ 
+ ARYOP #AOPADD, prodx,w,1
+ ARYOP #AOPCLP,um,prodx,0,1
+ ARYOP #AOPCLP,vm,w,0,1
+ ARYOP #AOPSUB,vi,um,vm
+ ARYOP #AOPMUL,um,ui,vi
+ 
+'masks
+ARYOP #AOPMUL,u,u,um
+ARYOP #AOPMUL,v,v,um
+ARYOP #AOPMUL,w,w,um
+'perspective correction
+aryop #AOPMUL,u,u,invaz*#screenzoom
+aryop #AOPMUL,v,v,invbz*#screenzoom
+aryop #AOPMUL,w,w,invcz*#screenzoom
+'denominator
+ARYOP #AOPADD,prodx,u,v
+aryop #AOPADD,prodx,prodx,w
+
+'depth test
+gsave 1,ptx*h,(pty+kernel)*wi,h,wi,adpth
+aryop #AOPMUL,adpth,adpth,invdepthres
+ARYOP #AOPCLP,disp1x,prodx,prodx,adpth
+ARYOP #AOPSUB,disp1y,prodx,disp1x
+ARYOP #AOPSUB,disp1x,adpth,prodx
+ARYOP #AOPADD,disp1x,disp1y,disp1x
+ARYOP #AOPSUB,disp1x,1,disp1x
+ARYOP #AOPCLP,um disp1x,0,1
+ARYOP #AOPMUL,u,u,um
+ARYOP #AOPMUL,v,v,um
+ARYOP #AOPMUL,w,w,um
+ARYOP #AOPSUB,um,1,um
+aryop #AOPMAD,adpth,adpth,um,prodx
+ARYOP #aopmul,adpth,adpth,depthres
+ARYOP #AOPSUB,um,1,um
+targ=GTARGET()
+GTARGET 1
+gload ptx*h,(pty+kernel)*wi,h,wi,adpth,0
+gtarget targ
+aryop #AOPCLP, prodx,prodx,1e-4,1
+ARYOP #AOPDIV,u,u,prodx
+ARYOP #AOPDIV,v,v,prodx
+ARYOP #AOPDIV,w,w,prodx
+
+ARYOP #AOPMUL,disp1x,u,upx
+ARYOP #AOPMUL,disp1y,u,upy
+
+ARYOP #AOPMAD,disp1x,v,vpx,disp1x
+ARYOP #AOPMAD,disp1y,v,vpy,disp1y
+
+ARYOP #AOPMAD,disp1x,w,wpx,disp1x
+ARYOP #AOPMAD,vi,w,wpy,disp1y
+ARYOP #AOPMAD,ui,vi,2048,disp1x
+'diffuse
+gload ptx*h,pty*wi,h,wi,ui,g5,rgbf(dot*.4,dot*.4,dot*.4)
+'ambient
+gload ptx*h,pty*wi,h,wi,ui,g5,rgbf(.6,.6,.6)
+NEXT
+NEXT
+endif
+return
